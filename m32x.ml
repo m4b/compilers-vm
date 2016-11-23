@@ -14,11 +14,10 @@
 open Sys
 open Printf
 
-let ( $ ) f x = f x
 let sob byte = 
   sprintf "0x%02x" byte
 
-let programName () = 
+let program_name () =
   if Array.length argv < 2 then 
     begin
       printf "Usage: machine <program name>\n";
@@ -27,7 +26,7 @@ let programName () =
   else
     argv.(1)
 
-let programExists pn =
+let program_exists pn =
   if file_exists pn then
     ()
   else
@@ -49,7 +48,7 @@ exception BAD_OPCODE of string
 (* get leftmost hex bit *)
 let oc hex = hex lsr 28
 
-let nibbleN n hex =
+let nibble_n n hex =
   (hex lsr (n*4)) land 0xf
 
 let div32 x y =
@@ -119,7 +118,7 @@ let setp ar offset value = ar.(offset) <- value
 let getp ar offset = ar.(offset)
 
 let make_instruction_array ar =
-  let instruction_ar = Array.create ((Array.length ar) / 4) 0x0  in
+  let instruction_ar = Array.make ((Array.length ar) / 4) 0x0  in
   for i = 0 to (Array.length ar) / 4 - 1 do
     let instruction = 
       (ar.(4*i)   lsl 24)  +
@@ -135,43 +134,46 @@ let make_instruction_array ar =
 (*    memory functions      *)
 (* ======================== *)
 
-let memsize = 10000000
-let addressStack = Stack.create ()
-let addressCounter = ref 0
+let memsize = 10_000_000
+let address_stack = Stack.create ()
+let address_counter = ref 0
 
 let getaddress ac =
-  if Stack.is_empty addressStack then
+  if Stack.is_empty address_stack then
     ac + 1
   else
-    Stack.pop addressStack
+    Stack.pop address_stack
 
 (* malloc returns identifier *)
 let malloc words memory =
   let address =
-    if Stack.is_empty addressStack then
+    if Stack.is_empty address_stack then
       begin
-	incr addressCounter;
-	!addressCounter
+	incr address_counter;
+	!address_counter
       end
     else
-      Stack.pop addressStack
+      Stack.pop address_stack
   in
-  memory.(address) <- Array.create words 0x0;
+  memory.(address) <- Array.make words 0x0;
   address
   
-let destructiveLoad program memory =
+let destructive_load program memory =
   let program' = Array.copy program in
   memory.(0x0) <- program'
 
+(* yup, we statically allocate all memory; originally had a proper
+   dynamic allocator, but all the fast (i.e., cheating)
+   versions of the vm do this, so we'll cheat too *)
 let init_memory iar = 
-  let mem = Array.create memsize [||] in
+  let mem = Array.make memsize [||] in
   mem.(0) <- iar;
   mem
 
 (* execute instructions *)
 (* ==================== *)
 
-let rec execute1 reg memory eip halt ac =
+let rec execute reg memory eip halt ac =
 
   if halt then
     ()
@@ -191,57 +193,57 @@ let rec execute1 reg memory eip halt ac =
 	  ()
 	else
 	  reg.(a) <- reg.(b);
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
     | 0x1 ->
 	let address = reg.(b) in
 	let offset = reg.(c) in
 	let value = memory.(address).(offset) in
 	reg.(a) <- value;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 	    
     | 0x2 -> 
 	let address = reg.(a) in
 	let offset = reg.(b) in
 	let value = reg.(c) in
 	memory.(address).(offset) <- value;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 	
     | 0x3 ->
 	let value = (reg.(b) + reg.(c)) mod 4294967296 in
 	reg.(a) <- value;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
     | 0x4 ->
 	let value = (reg.(b) * reg.(c)) mod 4294967296 in
 	reg.(a) <- value;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
     | 0x5 ->
 	let value = reg.(b) / reg.(c) in
 	reg.(a) <- value;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
 
     | 0x6 ->
 	let value = nand reg.(b) (reg.(c)) in
 	reg.(a) <- value;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
     | 0x7 ->
-	execute1 reg memory (eip+1) true ac
+	execute reg memory (eip+1) true ac
 
     | 0x8 ->
 	let words = reg.(c) in
 	let address = getaddress ac in
-	memory.(address) <- Array.create words 0x0;
+	memory.(address) <- Array.make words 0x0;
 	reg.(b) <- address;
-	execute1 reg memory (eip+1) halt address
+	execute reg memory (eip+1) halt address
 
     | 0x9 ->
 	let address = reg.(c) in
-	Stack.push address addressStack;
-	execute1 reg memory (eip+1) halt ac
+	Stack.push address address_stack;
+	execute reg memory (eip+1) halt ac
      
     | 0xa ->
 
@@ -249,14 +251,14 @@ let rec execute1 reg memory eip halt ac =
 	let ascii = char_of_int value in 
 	flush stdout;
 	print_char ascii;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
     | 0xb ->
 
 	flush stdout;
 	let input = input_byte stdin in
 	reg.(c) <- input;
-	execute1 reg memory (eip+1) halt ac
+	execute reg memory (eip+1) halt ac
 
     | 0xc ->
 	let address = reg.(b) in
@@ -264,12 +266,12 @@ let rec execute1 reg memory eip halt ac =
 	if address = 0x0 then
 	  ()
 	else
-	  destructiveLoad (memory.(address)) memory;
-	execute1 reg memory offset halt ac
+	  destructive_load (memory.(address)) memory;
+	execute reg memory offset halt ac
 
     | 0xd ->
-	reg.((nibbleN 6 instruction) lsr 1) <- 33554431 land instruction;
-	execute1 reg memory (eip+1) halt ac
+	reg.((nibble_n 6 instruction) lsr 1) <- 33554431 land instruction;
+	execute reg memory (eip+1) halt ac
 
     | opcode ->
 	raise (BAD_OPCODE (sob opcode))
@@ -281,7 +283,7 @@ let init iar =
   let memory = init_memory iar in
   genreg,memory
 
-let parseArgs () =
+let parse_args () =
   let len = Array.length argv in
   if len < 2 then 
     begin
@@ -293,21 +295,21 @@ let parseArgs () =
 
 let main  =
   begin
-    let program = parseArgs () in
-    programExists program;
-    let programChannel = open_in program in
+    let program = parse_args () in
+    program_exists program;
+    let program_channel = open_in program in
 
-    let programArray = make_byte_array programChannel in
-    let executable = make_instruction_array programArray in
+    let program_array = make_byte_array program_channel in
+    let executable = make_instruction_array program_array in
     let (reg, memory) = init executable in
 
-    close_in programChannel;
+    close_in program_channel;
     flush stdout;
 
     Gc.set { (Gc.get()) with Gc.minor_heap_size = (262144*64)};
     Gc.set { (Gc.get()) with Gc.major_heap_increment = (126976*64)};
 
-    execute1 reg memory 0 false 0;
+    execute reg memory 0 false 0;
     printf "Time elapsed since execution: %f\n" (time ());
     exit 0;
      
