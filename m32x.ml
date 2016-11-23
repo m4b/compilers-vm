@@ -5,7 +5,7 @@
    profile:
    ocamlopt.opt -p -unsafe -ccopt -O5 -S -inline 20 -nodynlink m32x.ml -o m32xp ; ocamloptp -p m32x.ml
 
-   copyleft: Matthew Barney
+   copyleft: m4b
 
    ==========
 
